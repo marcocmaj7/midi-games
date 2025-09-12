@@ -53,6 +53,7 @@ class MelodyGeneratorGUI:
         self.menu.add_cascade(label="File", menu=file_menu)
         help_menu = tk.Menu(self.menu, tearoff=0)
         help_menu.add_command(label="About", command=lambda: messagebox.showinfo("About", "Math Melody Generator\nwith microtonal export"))
+        help_menu.add_command(label="Function Help", command=self.show_function_help)
         self.menu.add_cascade(label="Help", menu=help_menu)
         self.root.config(menu=self.menu)
 
@@ -92,8 +93,29 @@ class MelodyGeneratorGUI:
         self.x_range_entry = ttk.Entry(input_frame, width=40)
         self.x_range_entry.grid(row=2, column=1, padx=5, pady=5)
         self.x_range_entry.insert(0, "-6.28,6.28")  # -2π to 2π
+        self.x_range_entry.bind('<KeyRelease>', self.on_x_range_entry_change)
+        
+        # Min/Max sliders
+        slider_frame = ttk.Frame(input_frame)
+        slider_frame.grid(row=3, column=0, columnspan=3, sticky=tk.EW, pady=(0,5))
+        
+        # Configure columns for proper spacing
+        slider_frame.columnconfigure(1, weight=1)
+        slider_frame.columnconfigure(3, weight=1)
+        
+        ttk.Label(slider_frame, text="Min:").grid(row=0, column=0, sticky=tk.W, padx=(0,5))
+        self.x_min_scale = ttk.Scale(slider_frame, from_=-20, to=20, orient=tk.HORIZONTAL, command=self.on_x_range_slider)
+        self.x_min_scale.grid(row=0, column=1, sticky=tk.EW)
+        self.x_min_scale.set(-6.28)
+        
+        ttk.Label(slider_frame, text="Max:").grid(row=0, column=2, sticky=tk.W, padx=(10,5))
+        self.x_max_scale = ttk.Scale(slider_frame, from_=-20, to=20, orient=tk.HORIZONTAL, command=self.on_x_range_slider)
+        self.x_max_scale.grid(row=0, column=3, sticky=tk.EW)
+        self.x_max_scale.set(6.28)
+        
         self.reset_range_btn = ttk.Button(input_frame, text="Reset", command=self.reset_range)
         self.reset_range_btn.grid(row=2, column=2, padx=5)
+        input_frame.columnconfigure(1, weight=1)
         
         # Number of notes
         ttk.Label(input_frame, text="Number of notes:").grid(row=3, column=0, sticky=tk.W)
@@ -524,6 +546,31 @@ class MelodyGeneratorGUI:
         val = int(float(value))
         self.notes_entry.delete(0, tk.END)
         self.notes_entry.insert(0, str(val))
+        
+    def on_x_range_slider(self, _value):
+        min_val = self.x_min_scale.get()
+        max_val = self.x_max_scale.get()
+        
+        # Ensure min < max
+        if min_val >= max_val:
+            if _value == self.x_min_scale:
+                self.x_min_scale.set(max_val - 0.1)
+            else:
+                self.x_max_scale.set(min_val + 0.1)
+            return
+            
+        self.x_range_entry.delete(0, tk.END)
+        self.x_range_entry.insert(0, f"{min_val:.2f},{max_val:.2f}")
+        
+    def on_x_range_entry_change(self, _event):
+        try:
+            min_val, max_val = map(float, self.x_range_entry.get().split(','))
+            if min_val >= max_val:
+                return
+            self.x_min_scale.set(min_val)
+            self.x_max_scale.set(max_val)
+        except ValueError:
+            pass
 
     def on_preset_change(self, _event=None):
         preset = self.preset_combo.get()
@@ -533,6 +580,8 @@ class MelodyGeneratorGUI:
     def reset_range(self):
         self.x_range_entry.delete(0, tk.END)
         self.x_range_entry.insert(0, "-6.28,6.28")
+        self.x_min_scale.set(-6.28)
+        self.x_max_scale.set(6.28)
 
     def update_instrument_name(self):
         """Update the instrument name label when the instrument number changes"""
@@ -571,6 +620,48 @@ class MelodyGeneratorGUI:
         self.style.configure('Toggle.TCheckbutton', background=bg, foreground=fg)
 
         self.root.configure(background=bg)
+
+    def show_function_help(self):
+        """Show detailed help about all functions and parameters"""
+        help_text = """Math Melody Generator - Function Help
+
+Function Input:
+- Enter a mathematical function using 'x' as the variable
+- Supports: +, -, *, /, ** (power), sin, cos, tan, exp, log, sqrt, abs
+- Example: "sin(x) + cos(2*x) * exp(-abs(x))"
+
+X Range:
+- The range of x values to evaluate the function over
+- Format: min,max (e.g. -6.28,6.28 for -2π to 2π)
+- Larger ranges will create more dramatic pitch changes
+
+Number of Notes:
+- How many discrete notes to generate from the function
+- More notes = smoother melody but longer duration
+- Range: 8-128 notes
+
+Playback Parameters:
+- Tempo: Beats per minute (40-240 BPM)
+- Velocity: Note loudness (0-127)
+- Duration: Length of each note in beats (0.1-4.0)
+- Instrument: Select from 128 General MIDI instruments
+- Transpose: Shift pitch up/down in semitones (-24 to +24)
+
+Microtonal Options:
+- Enable pitch bend for continuous pitch changes
+- Bend range: Maximum pitch deviation (± semitones)
+- Reset bend: Return to center pitch after each note
+
+Auto-save:
+- Automatically save generated MIDI to specified path
+- Path can be relative or absolute
+
+Keyboard Shortcuts:
+- Ctrl+G: Generate MIDI
+- Ctrl+S: Save MIDI
+- Space: Play/Stop
+"""
+        messagebox.showinfo("Function Help", help_text)
 
     def update_plot_theme(self):
         if self.is_dark_mode:
