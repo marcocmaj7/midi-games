@@ -1,8 +1,11 @@
 from midiutil import MIDIFile
 
+from .scales import quantize_to_scale
+
 def function_to_midi(function_values, tempo=120, velocity=100, note_duration=0.5,
                     instrument=0, transpose=0, microtonal=False,
-                    bend_range_semitones=2, reset_bend_after_note=True):
+                    bend_range_semitones=2, reset_bend_after_note=True,
+                    scale="chromatic", root=60):
     """
     Convert a list of function values to MIDI notes
     
@@ -76,6 +79,7 @@ def function_to_midi(function_values, tempo=120, velocity=100, note_duration=0.5
         else:
             # Round to nearest semitone
             note = round(note)
+            note = quantize_to_scale(note, root=root, scale=scale)
             midi.addNote(track, channel, note, time + (i * note_duration),
                         note_duration, velocity)
     

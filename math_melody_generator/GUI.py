@@ -53,6 +53,11 @@ class MelodyGeneratorGUI:
         # Initialize variables
         self.temp_midi_path = None
         self.is_dark_mode = False
+
+        # Initialize scale selection variable
+        from src.midi_synthesizer.scales import SCALES
+        self.scale_var = tk.StringVar(value="chromatic")
+        self.available_scales = list(SCALES.keys())
         
         # Create required directories
         os.makedirs(os.path.join(os.getcwd(), "output"), exist_ok=True)
@@ -139,6 +144,13 @@ class MelodyGeneratorGUI:
         self.transpose_spin.grid(row=2, column=3, padx=5)
         self.transpose_spin.insert(0, "0")
         
+        # Scale selection
+        scale_frame = ttk.LabelFrame(main_frame, text="Scale", padding="5")
+        scale_frame.pack(fill=tk.X, pady=5)
+        ttk.Label(scale_frame, text="Scale:").pack(side=tk.LEFT, padx=5)
+        self.scale_combo = ttk.Combobox(scale_frame, textvariable=self.scale_var, values=self.available_scales, state="readonly")
+        self.scale_combo.pack(side=tk.LEFT, padx=5)
+
         # Microtonal options
         options_frame = ttk.LabelFrame(main_frame, text="Options", padding="5")
         options_frame.pack(fill=tk.X, pady=5)
@@ -272,7 +284,9 @@ class MelodyGeneratorGUI:
                 note_duration=note_duration,
                 instrument=instrument,
                 transpose=transpose,
-                microtonal=microtonal
+                microtonal=microtonal,
+                scale=self.scale_var.get(),
+                root=60
             )
             
             temp_path = os.path.join(tempfile.gettempdir(), f"melody_{int(time.time())}.mid")
