@@ -1,444 +1,328 @@
 import tkinter as tk
-from tkinter import ttk
-from tkinter import filedialog
-from tkinter import messagebox
-from tkinter import scrolledtext
+from tkinter import ttk, messagebox, filedialog
+import os
+import tempfile
+import time
+import numpy as np
+from pygame import mixer
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-import numpy as np
-from main import function_to_midi
-import os
-import time
-from pygame import mixer
-import tempfile
+from main import SafeMathEvaluator
+from src.midi_synthesizer.midi_generator import function_to_midi
+
 
 class MelodyGeneratorGUI:
+    # MIDI Program/Instrument names
+    midi_instruments = [
+        "Acoustic Grand Piano", "Bright Acoustic Piano", "Electric Grand Piano", "Honky-tonk Piano",
+        "Electric Piano 1", "Electric Piano 2", "Harpsichord", "Clavinet", "Celesta", "Glockenspiel",
+        "Music Box", "Vibraphone", "Marimba", "Xylophone", "Tubular Bells", "Dulcimer",
+        "Drawbar Organ", "Percussive Organ", "Rock Organ", "Church Organ", "Reed Organ", "Accordion",
+        "Harmonica", "Tango Accordion", "Acoustic Guitar (nylon)", "Acoustic Guitar (steel)",
+        "Electric Guitar (jazz)", "Electric Guitar (clean)", "Electric Guitar (muted)", 
+        "Overdriven Guitar", "Distortion Guitar", "Guitar harmonics", "Acoustic Bass",
+        "Electric Bass (finger)", "Electric Bass (pick)", "Fretless Bass", "Slap Bass 1",
+        "Slap Bass 2", "Synth Bass 1", "Synth Bass 2", "Violin", "Viola", "Cello",
+        "Contrabass", "Tremolo Strings", "Pizzicato Strings", "Orchestral Harp", "Timpani",
+        "String Ensemble 1", "String Ensemble 2", "Synth Strings 1", "Synth Strings 2",
+        "Choir Aahs", "Voice Oohs", "Synth Voice", "Orchestra Hit", "Trumpet", "Trombone",
+        "Tuba", "Muted Trumpet", "French Horn", "Brass Section", "Synth Brass 1", 
+        "Synth Brass 2", "Soprano Sax", "Alto Sax", "Tenor Sax", "Baritone Sax", "Oboe",
+        "English Horn", "Bassoon", "Clarinet", "Piccolo", "Flute", "Recorder", "Pan Flute",
+        "Blown Bottle", "Shakuhachi", "Whistle", "Ocarina", "Lead 1 (square)", 
+        "Lead 2 (sawtooth)", "Lead 3 (calliope)", "Lead 4 (chiff)", "Lead 5 (charang)",
+        "Lead 6 (voice)", "Lead 7 (fifths)", "Lead 8 (bass + lead)", "Pad 1 (new age)",
+        "Pad 2 (warm)", "Pad 3 (polysynth)", "Pad 4 (choir)", "Pad 5 (bowed)",
+        "Pad 6 (metallic)", "Pad 7 (halo)", "Pad 8 (sweep)", "FX 1 (rain)", 
+        "FX 2 (soundtrack)", "FX 3 (crystal)", "FX 4 (atmosphere)", "FX 5 (brightness)",
+        "FX 6 (goblins)", "FX 7 (echoes)", "FX 8 (sci-fi)", "Sitar", "Banjo", "Shamisen",
+        "Koto", "Kalimba", "Bag pipe", "Fiddle", "Shanai", "Tinkle Bell", "Agogo",
+        "Steel Drums", "Woodblock", "Taiko Drum", "Melodic Tom", "Synth Drum",
+        "Reverse Cymbal", "Guitar Fret Noise", "Breath Noise", "Seashore", "Bird Tweet",
+        "Telephone Ring", "Helicopter", "Applause", "Gunshot"
+    ]
+
     def __init__(self, root):
+        """Initialize the application"""
         self.root = root
         self.root.title("Math Melody Generator")
-        self.root.geometry("900x650")
-        self.root.minsize(820, 560)
         
-        # Initialize pygame mixer for audio playback
+        # Initialize mixer for MIDI playback
         mixer.init()
         
-        # UI state and theme
-        self.is_dark_mode = True
+        # Initialize variables
         self.temp_midi_path = None
+        self.is_dark_mode = False
         
-        # Styles
+        # Create required directories
+        os.makedirs(os.path.join(os.getcwd(), "output"), exist_ok=True)
+        os.makedirs(os.path.join(os.getcwd(), "presets"), exist_ok=True)
+        
+        # Create matplotlib figure
+        self.fig, self.ax = plt.subplots(figsize=(8, 4))
+        
+        # Setup style
         self.style = ttk.Style()
-        try:
-            self.style.theme_use('clam')
-        except tk.TclError:
-            pass
-        self.apply_theme(self.is_dark_mode)
+        self.theme_var = tk.BooleanVar(value=False)
         
+        # Create widgets and bind shortcuts
         self.create_widgets()
         self.bind_shortcuts()
-        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
         
+        # Setup window close handler
+        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+
     def create_widgets(self):
         # Main frame
         main_frame = ttk.Frame(self.root, padding="10")
         main_frame.pack(fill=tk.BOTH, expand=True)
         
-        # Menu bar
-        self.menu = tk.Menu(self.root)
-        file_menu = tk.Menu(self.menu, tearoff=0)
-        file_menu.add_command(label="Generate	Ctrl+G", command=self.generate_midi)
-        file_menu.add_command(label="Save...", command=self.save_midi)
-        file_menu.add_separator()
-        file_menu.add_command(label="Exit", command=self.on_close)
-        self.menu.add_cascade(label="File", menu=file_menu)
-        help_menu = tk.Menu(self.menu, tearoff=0)
-        help_menu.add_command(label="About", command=lambda: messagebox.showinfo("About", "Math Melody Generator\nwith microtonal export"))
-        help_menu.add_command(label="Function Help", command=self.show_function_help)
-        self.menu.add_cascade(label="Help", menu=help_menu)
-        self.root.config(menu=self.menu)
-
-        # Header with title and theme toggle
-        header_frame = ttk.Frame(main_frame)
-        header_frame.pack(fill=tk.X, pady=(0, 8))
-        header_label = ttk.Label(header_frame, text="🎵 Math Melody Generator", style='Header.TLabel')
-        header_label.pack(side=tk.LEFT)
-        self.theme_var = tk.BooleanVar(value=self.is_dark_mode)
-        self.theme_toggle = ttk.Checkbutton(header_frame, text="Dark mode", variable=self.theme_var, command=self.toggle_theme, style='Toggle.TCheckbutton')
-        self.theme_toggle.pack(side=tk.RIGHT)
-
-        # Input frame
-        input_frame = ttk.LabelFrame(main_frame, text="Function Parameters", padding="10")
-        input_frame.pack(fill=tk.X, pady=5)
+        # Function input frame
+        function_frame = ttk.LabelFrame(main_frame, text="Function", padding="5")
+        function_frame.pack(fill=tk.X, pady=5)
         
-        # Preset and Function input
-        ttk.Label(input_frame, text="Preset:").grid(row=0, column=0, sticky=tk.W)
-        self.preset_combo = ttk.Combobox(input_frame, state='readonly', values=[
-            "sin(x)",
-            "cos(x)",
-            "sin(x) + cos(2*x)",
-            "exp(-abs(x)) * sin(5*x)",
-            "sqrt(abs(x)) * sin(2*x)",
-            "tan(x)"
-        ], width=37)
-        self.preset_combo.grid(row=0, column=1, padx=5, pady=5, sticky=tk.W)
-        self.preset_combo.bind('<<ComboboxSelected>>', self.on_preset_change)
-
-        ttk.Label(input_frame, text="Function (use x as variable):").grid(row=1, column=0, sticky=tk.W)
-        self.function_entry = ttk.Entry(input_frame, width=40)
-        self.function_entry.grid(row=1, column=1, padx=5, pady=5)
+        self.function_entry = ttk.Entry(function_frame, width=40)
+        self.function_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
         self.function_entry.insert(0, "sin(x)")
         
-        # X range
-        ttk.Label(input_frame, text="X Range (min,max):").grid(row=2, column=0, sticky=tk.W)
-        self.x_range_entry = ttk.Entry(input_frame, width=40)
-        self.x_range_entry.grid(row=2, column=1, padx=5, pady=5)
-        self.x_range_entry.insert(0, "-6.28,6.28")  # -2π to 2π
-        self.x_range_entry.bind('<KeyRelease>', self.on_x_range_entry_change)
+        # X range frame
+        range_frame = ttk.LabelFrame(main_frame, text="X Range", padding="5")
+        range_frame.pack(fill=tk.X, pady=5)
         
-        # Min/Max sliders
-        slider_frame = ttk.Frame(input_frame)
-        slider_frame.grid(row=3, column=0, columnspan=3, sticky=tk.EW, pady=(0,5))
+        ttk.Label(range_frame, text="Start:").pack(side=tk.LEFT, padx=5)
+        self.x_start = ttk.Spinbox(range_frame, from_=-100, to=100, increment=0.1, width=10)
+        self.x_start.pack(side=tk.LEFT, padx=5)
+        self.x_start.insert(0, "0")
         
-        # Configure columns for proper spacing
-        slider_frame.columnconfigure(1, weight=1)
-        slider_frame.columnconfigure(3, weight=1)
+        ttk.Label(range_frame, text="End:").pack(side=tk.LEFT, padx=5)
+        self.x_end = ttk.Spinbox(range_frame, from_=-100, to=100, increment=0.1, width=10)
+        self.x_end.pack(side=tk.LEFT, padx=5)
+        self.x_end.insert(0, "6.28")
         
-        ttk.Label(slider_frame, text="Min:").grid(row=0, column=0, sticky=tk.W, padx=(0,5))
-        self.x_min_scale = ttk.Scale(slider_frame, from_=-20, to=20, orient=tk.HORIZONTAL, command=self.on_x_range_slider)
-        self.x_min_scale.grid(row=0, column=1, sticky=tk.EW)
-        self.x_min_scale.set(-6.28)
-        
-        ttk.Label(slider_frame, text="Max:").grid(row=0, column=2, sticky=tk.W, padx=(10,5))
-        self.x_max_scale = ttk.Scale(slider_frame, from_=-20, to=20, orient=tk.HORIZONTAL, command=self.on_x_range_slider)
-        self.x_max_scale.grid(row=0, column=3, sticky=tk.EW)
-        self.x_max_scale.set(6.28)
-        
-        self.reset_range_btn = ttk.Button(input_frame, text="Reset", command=self.reset_range)
-        self.reset_range_btn.grid(row=2, column=2, padx=5)
-        input_frame.columnconfigure(1, weight=1)
+        # Note parameters frame
+        note_frame = ttk.LabelFrame(main_frame, text="Note Parameters", padding="5")
+        note_frame.pack(fill=tk.X, pady=5)
         
         # Number of notes
-        ttk.Label(input_frame, text="Number of notes:").grid(row=3, column=0, sticky=tk.W)
-        self.notes_entry = ttk.Entry(input_frame, width=10)
-        self.notes_entry.grid(row=3, column=1, padx=(5, 10), pady=5, sticky=tk.W)
+        ttk.Label(note_frame, text="Number of notes:").grid(row=0, column=0, padx=5)
+        self.notes_entry = ttk.Spinbox(note_frame, from_=8, to=128, width=10)
+        self.notes_entry.grid(row=0, column=1, padx=5)
         self.notes_entry.insert(0, "32")
-        self.notes_scale = ttk.Scale(input_frame, from_=8, to=128, orient=tk.HORIZONTAL, command=self.on_notes_scale)
-        self.notes_scale.set(32)
-        self.notes_scale.grid(row=3, column=1, padx=(100, 5), pady=5, sticky=tk.EW)
-        input_frame.columnconfigure(1, weight=1)
-
-        # Playback & synthesis parameters
-        ttk.Label(input_frame, text="Tempo (BPM):").grid(row=4, column=0, sticky=tk.W)
-        self.tempo_spin = ttk.Spinbox(input_frame, from_=40, to=240, width=8)
-        self.tempo_spin.grid(row=4, column=1, sticky=tk.W, padx=5, pady=5)
-        self.tempo_spin.insert(0, "120")
-
-        ttk.Label(input_frame, text="Velocity (0-127):").grid(row=5, column=0, sticky=tk.W)
-        self.velocity_spin = ttk.Spinbox(input_frame, from_=0, to=127, width=8)
-        self.velocity_spin.grid(row=5, column=1, sticky=tk.W, padx=5, pady=5)
-        self.velocity_spin.insert(0, "100")
-
-        ttk.Label(input_frame, text="Duration (beats):").grid(row=6, column=0, sticky=tk.W)
-        self.duration_spin = ttk.Spinbox(input_frame, from_=0.1, to=4.0, increment=0.1, width=8)
-        self.duration_spin.grid(row=6, column=1, sticky=tk.W, padx=5, pady=5)
-        self.duration_spin.insert(0, "0.5")
-
-        # MIDI instrument names (General MIDI 1)
-        self.midi_instruments = [
-            "Acoustic Grand Piano", "Bright Acoustic Piano", "Electric Grand Piano", 
-            "Honky-tonk Piano", "Electric Piano 1", "Electric Piano 2", "Harpsichord", 
-            "Clavinet", "Celesta", "Glockenspiel", "Music Box", "Vibraphone", 
-            "Marimba", "Xylophone", "Tubular Bells", "Dulcimer", "Drawbar Organ", 
-            "Percussive Organ", "Rock Organ", "Church Organ", "Reed Organ", 
-            "Accordion", "Harmonica", "Tango Accordion", "Acoustic Guitar (nylon)", 
-            "Acoustic Guitar (steel)", "Electric Guitar (jazz)", "Electric Guitar (clean)", 
-            "Electric Guitar (muted)", "Overdriven Guitar", "Distortion Guitar", 
-            "Guitar Harmonics", "Acoustic Bass", "Electric Bass (finger)", 
-            "Electric Bass (pick)", "Fretless Bass", "Slap Bass 1", "Slap Bass 2", 
-            "Synth Bass 1", "Synth Bass 2", "Violin", "Viola", "Cello", "Contrabass", 
-            "Tremolo Strings", "Pizzicato Strings", "Orchestral Harp", "Timpani", 
-            "String Ensemble 1", "String Ensemble 2", "Synth Strings 1", "Synth Strings 2", 
-            "Choir Aahs", "Voice Oohs", "Synth Voice", "Orchestra Hit", "Trumpet", 
-            "Trombone", "Tuba", "Muted Trumpet", "French Horn", "Brass Section", 
-            "Synth Brass 1", "Synth Brass 2", "Soprano Sax", "Alto Sax", "Tenor Sax", 
-            "Baritone Sax", "Oboe", "English Horn", "Bassoon", "Clarinet", "Piccolo", 
-            "Flute", "Recorder", "Pan Flute", "Blown Bottle", "Shakuhachi", "Whistle", 
-            "Ocarina", "Lead 1 (square)", "Lead 2 (sawtooth)", "Lead 3 (calliope)", 
-            "Lead 4 (chiff)", "Lead 5 (charang)", "Lead 6 (voice)", "Lead 7 (fifths)", 
-            "Lead 8 (bass + lead)", "Pad 1 (new age)", "Pad 2 (warm)", "Pad 3 (polysynth)", 
-            "Pad 4 (choir)", "Pad 5 (bowed)", "Pad 6 (metallic)", "Pad 7 (halo)", 
-            "Pad 8 (sweep)", "FX 1 (rain)", "FX 2 (soundtrack)", "FX 3 (crystal)", 
-            "FX 4 (atmosphere)", "FX 5 (brightness)", "FX 6 (goblins)", "FX 7 (echoes)", 
-            "FX 8 (sci-fi)", "Sitar", "Banjo", "Shamisen", "Koto", "Kalimba", 
-            "Bagpipe", "Fiddle", "Shanai", "Tinkle Bell", "Agogo", "Steel Drums", 
-            "Woodblock", "Taiko Drum", "Melodic Tom", "Synth Drum", "Reverse Cymbal", 
-            "Guitar Fret Noise", "Breath Noise", "Seashore", "Bird Tweet", "Telephone Ring", 
-            "Helicopter", "Applause", "Gunshot"
-        ]
-
-        ttk.Label(input_frame, text="Instrument:").grid(row=7, column=0, sticky=tk.W)
-        instrument_frame = ttk.Frame(input_frame)
-        instrument_frame.grid(row=7, column=1, sticky=tk.W, padx=5, pady=5)
         
-        self.instrument_spin = ttk.Spinbox(instrument_frame, from_=0, to=127, width=3, command=self.update_instrument_name)
-        self.instrument_spin.pack(side=tk.LEFT)
+        # Tempo
+        ttk.Label(note_frame, text="Tempo (BPM):").grid(row=0, column=2, padx=5)
+        self.tempo_spin = ttk.Spinbox(note_frame, from_=40, to=240, width=10)
+        self.tempo_spin.grid(row=0, column=3, padx=5)
+        self.tempo_spin.insert(0, "120")
+        
+        # Note velocity
+        ttk.Label(note_frame, text="Velocity:").grid(row=1, column=0, padx=5)
+        self.velocity_spin = ttk.Spinbox(note_frame, from_=0, to=127, width=10)
+        self.velocity_spin.grid(row=1, column=1, padx=5)
+        self.velocity_spin.insert(0, "100")
+        
+        # Note duration
+        ttk.Label(note_frame, text="Duration:").grid(row=1, column=2, padx=5)
+        self.duration_spin = ttk.Spinbox(note_frame, from_=0.1, to=4.0, increment=0.1, width=10)
+        self.duration_spin.grid(row=1, column=3, padx=5)
+        self.duration_spin.insert(0, "0.5")
+        
+        # Instrument selection
+        ttk.Label(note_frame, text="Instrument:").grid(row=2, column=0, padx=5)
+        self.instrument_spin = ttk.Spinbox(note_frame, from_=0, to=127, width=10)
+        self.instrument_spin.grid(row=2, column=1, padx=5)
         self.instrument_spin.insert(0, "0")
         
-        self.instrument_label = ttk.Label(instrument_frame, text=self.midi_instruments[0])
-        self.instrument_label.pack(side=tk.LEFT, padx=5)
-
-        ttk.Label(input_frame, text="Transpose (semitones):").grid(row=8, column=0, sticky=tk.W)
-        self.transpose_spin = ttk.Spinbox(input_frame, from_=-24, to=24, width=8)
-        self.transpose_spin.grid(row=8, column=1, sticky=tk.W, padx=5, pady=5)
+        # Transpose
+        ttk.Label(note_frame, text="Transpose:").grid(row=2, column=2, padx=5)
+        self.transpose_spin = ttk.Spinbox(note_frame, from_=-24, to=24, width=10)
+        self.transpose_spin.grid(row=2, column=3, padx=5)
         self.transpose_spin.insert(0, "0")
-
-        self.loop_var = tk.BooleanVar(value=False)
-        self.loop_check = ttk.Checkbutton(input_frame, text="Loop playback", variable=self.loop_var)
-        self.loop_check.grid(row=9, column=1, sticky=tk.W, padx=5, pady=(0,5))
-
-        # Microtonal export
+        
+        # Microtonal options
+        options_frame = ttk.LabelFrame(main_frame, text="Options", padding="5")
+        options_frame.pack(fill=tk.X, pady=5)
+        
         self.microtonal_var = tk.BooleanVar(value=False)
-        self.microtonal_check = ttk.Checkbutton(input_frame, text="Enable microtonal (pitch bend)", variable=self.microtonal_var)
-        self.microtonal_check.grid(row=10, column=1, sticky=tk.W, padx=5, pady=(0,5))
-
-        ttk.Label(input_frame, text="Bend range (±semitones):").grid(row=11, column=0, sticky=tk.W)
-        self.bend_range_spin = ttk.Spinbox(input_frame, from_=1, to=24, width=8)
-        self.bend_range_spin.grid(row=11, column=1, sticky=tk.W, padx=5, pady=5)
+        ttk.Checkbutton(options_frame, text="Microtonal", variable=self.microtonal_var).pack(side=tk.LEFT, padx=5)
+        
+        ttk.Label(options_frame, text="Bend range:").pack(side=tk.LEFT, padx=5)
+        self.bend_range_spin = ttk.Spinbox(options_frame, from_=1, to=24, width=5)
+        self.bend_range_spin.pack(side=tk.LEFT, padx=5)
         self.bend_range_spin.insert(0, "2")
-
-        # Reset bend toggle
+        
         self.reset_bend_var = tk.BooleanVar(value=True)
-        self.reset_bend_check = ttk.Checkbutton(input_frame, text="Reset bend after note", variable=self.reset_bend_var)
-        self.reset_bend_check.grid(row=12, column=1, sticky=tk.W, padx=5, pady=(0,5))
-
-        # Auto-save controls
-        autosave_frame = ttk.Frame(input_frame)
-        autosave_frame.grid(row=13, column=0, columnspan=3, sticky=tk.EW, pady=(5,0))
-        self.autosave_var = tk.BooleanVar(value=False)
-        autosave_check = ttk.Checkbutton(autosave_frame, text="Auto-save to", variable=self.autosave_var)
-        autosave_check.pack(side=tk.LEFT)
-        self.autosave_entry = ttk.Entry(autosave_frame, width=32)
-        self.autosave_entry.pack(side=tk.LEFT, padx=6)
-        self.autosave_entry.insert(0, "output/generated_melody.mid")
-        
-        # Buttons
-        button_frame = ttk.Frame(main_frame)
-        button_frame.pack(fill=tk.X, pady=5)
-        
-        self.generate_btn = ttk.Button(button_frame, text="Generate MIDI", command=self.generate_midi, style='Accent.TButton')
-        self.generate_btn.pack(side=tk.LEFT, padx=5)
-        
-        self.play_btn = ttk.Button(button_frame, text="Play", command=self.play_midi, state=tk.DISABLED)
-        self.play_btn.pack(side=tk.LEFT, padx=5)
-        self.stop_btn = ttk.Button(button_frame, text="Stop", command=self.stop_midi, state=tk.DISABLED)
-        self.stop_btn.pack(side=tk.LEFT, padx=5)
-
-        self.save_btn = ttk.Button(button_frame, text="Save...", command=self.save_midi, state=tk.DISABLED)
-        self.save_btn.pack(side=tk.LEFT, padx=5)
-
-        # Volume control
-        vol_container = ttk.Frame(button_frame)
-        vol_container.pack(side=tk.RIGHT)
-        vol_label = ttk.Label(vol_container, text="Volume")
-        vol_label.pack(side=tk.LEFT, padx=(0,4))
-        self.volume_scale = ttk.Scale(vol_container, from_=0, to=100, orient=tk.HORIZONTAL, command=self.on_volume_change)
-        self.volume_scale.set(70)
-        self.volume_scale.pack(side=tk.LEFT, padx=(0,10))
+        ttk.Checkbutton(options_frame, text="Reset bend", variable=self.reset_bend_var).pack(side=tk.LEFT, padx=5)
         
         # Plot frame
-        plot_frame = ttk.LabelFrame(main_frame, text="Function Plot", padding="10")
+        plot_frame = ttk.Frame(main_frame)
         plot_frame.pack(fill=tk.BOTH, expand=True, pady=5)
         
-        self.figure = plt.Figure(figsize=(6, 4), dpi=100)
-        self.ax = self.figure.add_subplot(111)
-        self.canvas = FigureCanvasTkAgg(self.figure, plot_frame)
+        self.canvas = FigureCanvasTkAgg(self.fig, master=plot_frame)
+        self.canvas.draw()
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         
-        # Log panel
-        log_frame = ttk.LabelFrame(main_frame, text="Log", padding="4")
-        log_frame.pack(fill=tk.BOTH, expand=False, pady=5)
-        self.log_text = scrolledtext.ScrolledText(log_frame, height=5)
-        self.log_text.pack(fill=tk.BOTH, expand=True)
-
+        # Control buttons frame
+        control_frame = ttk.Frame(main_frame)
+        control_frame.pack(fill=tk.X, pady=5)
+        
+        self.generate_btn = ttk.Button(control_frame, text="Generate", command=self.generate_midi)
+        self.generate_btn.pack(side=tk.LEFT, padx=5)
+        
+        self.play_btn = ttk.Button(control_frame, text="Play", command=self.play_midi, state=tk.DISABLED)
+        self.play_btn.pack(side=tk.LEFT, padx=5)
+        
+        self.stop_btn = ttk.Button(control_frame, text="Stop", command=self.stop_midi, state=tk.DISABLED)
+        self.stop_btn.pack(side=tk.LEFT, padx=5)
+        
+        self.save_btn = ttk.Button(control_frame, text="Save", command=self.save_midi, state=tk.DISABLED)
+        self.save_btn.pack(side=tk.LEFT, padx=5)
+        
+        # Volume control
+        ttk.Label(control_frame, text="Volume:").pack(side=tk.LEFT, padx=5)
+        self.volume_scale = ttk.Scale(control_frame, from_=0, to=100, orient=tk.HORIZONTAL)
+        self.volume_scale.pack(side=tk.LEFT, padx=5)
+        self.volume_scale.set(80)
+        
+        self.loop_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(control_frame, text="Loop", variable=self.loop_var).pack(side=tk.LEFT, padx=5)
+        
         # Status bar
-        self.status = ttk.Label(self.root, text="Ready", relief=tk.SUNKEN, anchor=tk.W, style='Status.TLabel')
-        self.status.pack(fill=tk.X)
-
-        # Initial plot theme
-        self.update_plot_theme()
-        self.log("UI initialized")
+        self.status = ttk.Label(main_frame, text="Ready", relief=tk.SUNKEN, anchor=tk.W)
+        self.status.pack(fill=tk.X, pady=5)
         
-    def parse_x_range(self, x_range_str):
-        """Parse X range input with validation
+        # Auto-save frame
+        autosave_frame = ttk.Frame(main_frame)
+        autosave_frame.pack(fill=tk.X, pady=5)
         
-        Args:
-            x_range_str: String in format "min,max"
+        self.autosave_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(autosave_frame, text="Auto-save to:", variable=self.autosave_var).pack(side=tk.LEFT, padx=5)
+        
+        self.autosave_entry = ttk.Entry(autosave_frame)
+        self.autosave_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        self.autosave_entry.insert(0, os.path.join(os.getcwd(), "output", "generated_melody.mid"))
             
-        Returns:
-            tuple: (min, max) values
-            
-        Raises:
-            ValueError: If input is invalid or min >= max
-        """
-        try:
-            parts = x_range_str.split(',')
-            if len(parts) != 2:
-                raise ValueError("Please enter range as 'min,max'")
-                
-            x_min, x_max = map(float, parts)
-            
-            if x_min >= x_max:
-                raise ValueError("Min value must be less than max value")
-                
-            return (x_min, x_max)
-            
-        except ValueError as e:
-            raise ValueError(f"Invalid range: {str(e)}")
-        except Exception:
-            raise ValueError("Invalid range format")
-    
+    def log(self, message):
+        print(f"[MelodyGen] {message}")
+        
     def generate_midi(self):
-        """Generate MIDI from mathematical function with input validation"""
+        """Generate MIDI file from current function and parameters"""
+        self.temp_midi_path = None # Ensure temp_midi_path is reset
         function = self.function_entry.get().strip()
         if not function:
-            self.status.config(text="Error: Please enter a function")
-            self.log("Error: Empty function")
+            self.status.config(text="Please enter a function")
             return
-            
+
         try:
-            x_range = self.parse_x_range(self.x_range_entry.get())
-        except ValueError as e:
-            self.status.config(text=f"Error: {str(e)}")
-            self.log(f"Error: Invalid X range - {str(e)}")
-            return
+            # Get X range
+            x_start = float(self.x_start.get())
+            x_end = float(self.x_end.get())
+            if x_end <= x_start:
+                raise ValueError("End X must be greater than Start X")
+            x_range = (x_start, x_end)
             
-        try:
+            # Get number of notes and validate
             num_notes = int(self.notes_entry.get())
             if num_notes < 8 or num_notes > 128:
                 raise ValueError("Number of notes must be between 8 and 128")
-        except ValueError as e:
-            self.status.config(text=f"Error: {str(e)}")
-            self.log(f"Error: Invalid note count - {str(e)}")
-            return
+                
+            # Create evaluator and sample function
+            evaluator = SafeMathEvaluator()
+            x_samples = np.linspace(x_range[0], x_range[1], num_notes)
+            y_values = [evaluator.eval_expression(function, x) for x in x_samples]
             
-        # Generate MIDI
-        # Collect parameters
-        try:
+            # Check for invalid values
+            if any(y is None for y in y_values):
+                raise ValueError("Function evaluation failed")
+                
+            # Get MIDI parameters
             tempo = int(self.tempo_spin.get())
             if tempo < 40 or tempo > 240:
                 raise ValueError("Tempo must be between 40 and 240 BPM")
-        except ValueError as e:
-            self.status.config(text=f"Error: {str(e)}")
-            self.log(f"Error: Invalid tempo - {str(e)}")
-            return
-            
-        try:
+                
             velocity = int(self.velocity_spin.get())
             if velocity < 0 or velocity > 127:
                 raise ValueError("Velocity must be between 0 and 127")
-        except ValueError as e:
-            self.status.config(text=f"Error: {str(e)}")
-            self.log(f"Error: Invalid velocity - {str(e)}")
-            return
-            
-        try:
+                
             note_duration = float(self.duration_spin.get())
             if note_duration <= 0 or note_duration > 4.0:
                 raise ValueError("Duration must be between 0.1 and 4.0 beats")
-        except ValueError as e:
-            self.status.config(text=f"Error: {str(e)}")
-            self.log(f"Error: Invalid duration - {str(e)}")
-            return
-            
-        try:
+                
             instrument = int(self.instrument_spin.get())
             if instrument < 0 or instrument > 127:
                 raise ValueError("Instrument must be between 0 and 127")
-        except ValueError as e:
-            self.status.config(text=f"Error: {str(e)}")
-            self.log(f"Error: Invalid instrument - {str(e)}")
-            return
-            
-        try:
+                
             transpose = int(self.transpose_spin.get())
             if transpose < -24 or transpose > 24:
                 raise ValueError("Transpose must be between -24 and 24 semitones")
-        except ValueError as e:
-            self.status.config(text=f"Error: {str(e)}")
-            self.log(f"Error: Invalid transpose - {str(e)}")
-            return
-
-        try:
+                
             microtonal = bool(self.microtonal_var.get())
-        except Exception:
-            microtonal = False
-            
-        try:
+                
             bend_range = int(self.bend_range_spin.get())
             if bend_range < 1 or bend_range > 24:
                 raise ValueError("Bend range must be between 1 and 24 semitones")
-        except ValueError as e:
-            self.status.config(text=f"Error: {str(e)}")
-            self.log(f"Error: Invalid bend range - {str(e)}")
-            return
-            
-        try:
+                
             reset_bend = bool(self.reset_bend_var.get())
-        except Exception:
-            reset_bend = True
-
-        midi = function_to_midi(
-            function,
-            x_range,
-            num_notes,
-            tempo=tempo,
-            velocity=velocity,
-            note_duration=note_duration,
-            instrument=instrument,
-            transpose=transpose,
-            microtonal=microtonal,
-            bend_range_semitones=bend_range,
-            reset_bend_after_note=reset_bend,
-        )
-        
-        # Save to temp file (don't auto-delete)
-        temp_path = os.path.join(tempfile.gettempdir(), f"melody_{int(time.time())}.mid")
-        self.temp_midi_path = temp_path
-        with open(temp_path, 'wb') as output_file:
-            midi.writeFile(output_file)
             
-        # Auto-save if enabled
-        if self.autosave_var.get():
-            target = self.autosave_entry.get().strip()
-            if target:
-                try:
-                    os.makedirs(os.path.dirname(target), exist_ok=True)
-                    with open(self.temp_midi_path, 'rb') as src, open(target, 'wb') as dst:
-                        dst.write(src.read())
-                    self.log(f"Auto-saved: {target}")
-                except OSError as e:
-                    self.log(f"Auto-save failed: {e}")
+            # If all validations passed, proceed to MIDI generation and saving
+            midi = function_to_midi(
+                y_values,
+                tempo=tempo,
+                velocity=velocity,
+                note_duration=note_duration,
+                instrument=instrument,
+                transpose=transpose,
+                microtonal=microtonal
+            )
+            
+            temp_path = os.path.join(tempfile.gettempdir(), f"melody_{int(time.time())}.mid")
+            self.temp_midi_path = temp_path # Assign temp_path here
+            with open(temp_path, 'wb') as output_file:
+                midi.writeFile(output_file)
+            
+            # Auto-save if enabled
+            if self.autosave_var.get():
+                target = self.autosave_entry.get().strip()
+                if target:
+                    try:
+                        os.makedirs(os.path.dirname(target), exist_ok=True)
+                        with open(self.temp_midi_path, 'rb') as src, open(target, 'wb') as dst:
+                            dst.write(src.read())
+                        self.log(f"Auto-saved: {target}")
+                    except OSError as e:
+                        self.log(f"Auto-save failed: {e}")
 
-        # Update plot
-        self.update_plot(function, x_range, num_notes)
-        
-        # Enable play button
-        self.play_btn.config(state=tk.NORMAL)
-        self.stop_btn.config(state=tk.NORMAL)
-        self.save_btn.config(state=tk.NORMAL)
-        self.status.config(text="MIDI generated successfully")
-        self.log("MIDI generated")
+            # Update plot
+            self.update_plot(function, x_range, num_notes)
+            
+            # Enable play button
+            self.play_btn.config(state=tk.NORMAL)
+            self.stop_btn.config(state=tk.NORMAL)
+            self.save_btn.config(state=tk.NORMAL)
+            self.status.config(text="MIDI generated successfully")
+            self.log("MIDI generated")
+
+        except Exception as e: # Catch errors during any part of the process
+            self.status.config(text=f"Error: {str(e)}")
+            self.log(f"Error: {str(e)}")
+            self.temp_midi_path = None # Ensure path is None if any error occurs
+            self.play_btn.config(state=tk.DISABLED)
+            self.stop_btn.config(state=tk.DISABLED)
+            self.save_btn.config(state=tk.DISABLED)
+            return
         
     def update_plot(self, function, x_range, num_notes):
         self.ax.clear()
         
-        # Use the SafeMathEvaluator from main.py
-        from main import SafeMathEvaluator
-        evaluator = SafeMathEvaluator()
-        
         # Plot the function
         x_vals = np.linspace(x_range[0], x_range[1], 1000)
+        evaluator = SafeMathEvaluator()
         y_vals = [evaluator.eval_expression(function, x) for x in x_vals]
+        
+        if any(y is None for y in y_vals):
+            self.status.config(text="Error: Function evaluation failed")
+            return
+            
         line_color = '#5B9BD5' if not self.is_dark_mode else '#7FB3FF'
         self.ax.plot(x_vals, y_vals, color=line_color, linewidth=2)
         
@@ -453,6 +337,17 @@ class MelodyGeneratorGUI:
         
         # Ensure theme persists
         self.update_plot_theme()
+        
+    def update_plot_theme(self):
+        if self.is_dark_mode:
+            plt.style.use('dark_background')
+            self.fig.set_facecolor('#2D2D2D')
+            self.ax.set_facecolor('#2D2D2D')
+        else:
+            plt.style.use('default')
+            self.fig.set_facecolor('white')
+            self.ax.set_facecolor('white')
+        self.canvas.draw()
         
     def play_midi(self):
         try:
@@ -481,12 +376,16 @@ class MelodyGeneratorGUI:
             self.status.config(text=f"Error: {str(e)}")
 
     def save_midi(self):
+        """Save the generated MIDI file to a user-selected location"""
         if not hasattr(self, 'temp_midi_path') or not os.path.exists(self.temp_midi_path):
             self.status.config(text="Generate a MIDI first")
             return
         
+        # Setup save dialog
         initial_dir = os.path.abspath(os.path.join(os.getcwd(), "output"))
         os.makedirs(initial_dir, exist_ok=True)
+        
+        # Get save path from user
         file_path = filedialog.asksaveasfilename(
             initialdir=initial_dir,
             title="Save MIDI",
@@ -494,70 +393,96 @@ class MelodyGeneratorGUI:
             filetypes=(("MIDI files", "*.mid"), ("All files", "*.*")),
             initialfile="generated_melody.mid"
         )
+        
         if file_path:
             try:
-                with open(self.temp_midi_path, 'rb') as src, open(file_path, 'wb') as dst:
-                    dst.write(src.read())
-                self.status.config(text=f"Saved to {file_path}")
+                with open(self.temp_midi_path, 'rb') as src:
+                    midi_data = src.read()
+                with open(file_path, 'wb') as dst:
+                    dst.write(midi_data)
+                self.status.config(text=f"Saved: {file_path}")
                 self.log(f"Saved: {file_path}")
             except OSError as e:
                 self.status.config(text=f"Save error: {str(e)}")
                 self.log(f"Save error: {e}")
 
     def on_volume_change(self, _value):
+        """Handle volume slider changes"""
         try:
             mixer.music.set_volume(self.volume_scale.get()/100.0)
         except Exception:
             pass
 
     def bind_shortcuts(self):
+        """Setup keyboard shortcuts"""
         self.root.bind_all('<Control-g>', lambda e: self.generate_midi())
         self.root.bind_all('<Control-s>', lambda e: self.save_midi())
         self.root.bind_all('<space>', lambda e: self.toggle_playback())
-
+        
     def toggle_playback(self):
+        """Toggle between playing and stopping the MIDI"""
+        if not hasattr(self, 'temp_midi_path'):
+            return
+            
         try:
             if mixer.music.get_busy():
                 self.stop_midi()
             else:
                 self.play_midi()
-        except Exception:
-            pass
+        except Exception as e:
+            self.status.config(text=f"Playback error: {str(e)}")
+            self.log(f"Playback error: {e}")
 
     def on_close(self):
+        """Handle window closing"""
         try:
-            mixer.music.stop()
-        except Exception:
-            pass
-        try:
+            # Stop any playing music
+            if mixer.music.get_busy():
+                mixer.music.stop()
             mixer.quit()
         except Exception:
             pass
-        self.root.destroy()
-
-    def log(self, message: str):
+            
+        # Clean up temp files
+        if self.temp_midi_path:
+            try:
+                os.remove(self.temp_midi_path)
+            except OSError: # Catch OSError specifically for file operations
+                pass
+            except Exception: # Catch any other unexpected exceptions
+                pass
+                
+        # Close matplotlib figure
         try:
-            self.log_text.insert(tk.END, f"{message}\n")
-            self.log_text.see(tk.END)
+            plt.close(self.fig)
         except Exception:
             pass
+            
+        # Destroy the window
+        self.root.destroy()
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = MelodyGeneratorGUI(root)
+    root.mainloop()
 
     def on_notes_scale(self, value):
         val = int(float(value))
         self.notes_entry.delete(0, tk.END)
         self.notes_entry.insert(0, str(val))
         
-    def on_x_range_slider(self, _value):
+    def on_x_range_slider(self, slider_type, value):
         min_val = self.x_min_scale.get()
         max_val = self.x_max_scale.get()
         
         # Ensure min < max
         if min_val >= max_val:
-            if _value == self.x_min_scale:
-                self.x_min_scale.set(max_val - 0.1)
+            if slider_type == 'min':
+                min_val = max_val - 0.1
+                self.x_min_scale.set(min_val)
             else:
-                self.x_max_scale.set(min_val + 0.1)
-            return
+                max_val = min_val + 0.1
+                self.x_max_scale.set(max_val)
             
         self.x_range_entry.delete(0, tk.END)
         self.x_range_entry.insert(0, f"{min_val:.2f},{max_val:.2f}")
